@@ -63,7 +63,7 @@ void *trackseq(void *args){
     }
  
  }
-
+//main function
 int main(int argc, char* argv[]){
 
     pthread_t seqtrack;
