@@ -17,6 +17,10 @@
 
 #define MAXSEQNO 748983
 
+
+seqACK *nackArray=NULL;
+
+
 typedef struct dataSt{
         int nakNo;
         struct dataSt *next;
@@ -25,6 +29,7 @@ typedef struct dataSt{
 
 dataSt *head = NULL;
 dataSt *cur = NULL;
+dataSt *nackTraversalPoint = NULL;
 
 int newSeqNo;
 int oldSeqNo = 1;
@@ -55,6 +60,7 @@ void trackseq(){
                 head->next = (dataSt *)cur;
                 head->back = NULL;
                 cur = head;
+                nackTraversalPoint=head;
             }
         
         else{
@@ -122,6 +128,23 @@ void updateNackList(int sequenceNo){
     }
  
  }
+
+ void returnNackArrayList(dataSt *head, seqACK *getNackArry){
+        dataSt *temp=NULL;
+        temp=head;
+        int i=0;
+        while(i<350 && temp!=NULL){
+            getNackArry->seqNo[i]=temp->nakNo;
+            temp=temp->next;
+            i++;
+        }
+        getNackArry->length=i;
+        printf("assigning nackTraversalPoint address: %d\n",temp);
+        nackTraversalPoint=temp;
+
+
+
+ }
 //Function for track and sequence
 
 
@@ -160,38 +183,69 @@ int main(int argc, char *argv[])
     packet=(customPacket* )malloc(sizeof(customPacket));
    // FILE * fpg=fopen("copyGB.bin", "w");
     newSeqNo=1;
-    int runsequenceTracker=100;
+    int runsequenceTracker=350;
+
+    //assign memory to nack array
+    //seqACK *nackArray
+    nackArray= (seqACK*)malloc(sizeof(seqACK));
+
+    int flagTest =1;
+   
      while (1) {
          n = recvfrom(sockfd,buffer,PACK_LEN,0,(struct sockaddr *)&from,&fromlen);
        
          packet=(customPacket*)buffer;
          //printf("Packet sequenceNumber : %d\n packet Length: %d\n",packet->sequenceNo,packet->len);
-         //logic to store the sequence number.
-         //printf("%s\n", packet->data);
-         //Store and update the sequence.
-         updateNackList(packet->sequenceNo);
+         //if(packet->sequenceNo)
+         if(packet->sequenceNo >runsequenceTracker+350) {
+                if(packet->sequenceNo >runsequenceTracker){
+                    printf("calling track sequence\n");
+                    oldSeqNo = newSeqNo;
+                    newSeqNo =runsequenceTracker+400;
+                    trackseq();
 
-         if(packet->sequenceNo >runsequenceTracker){
-            printf("calling track sequence\n");
-            oldSeqNo = newSeqNo;
-            newSeqNo =runsequenceTracker+1;
-            trackseq();
-            printLinklist( head);
-            runsequenceTracker+=100;
-            continue;
-            
+                //printLinklist( head);
+
+                    //returnNackArrayList(nackTraversalPoint, nackArray);
+                    if(flagTest){
+                        nackTraversalPoint=head;
+                        printf("Assigning nackTraversalPoint head %d\t %d\n",head , nackTraversalPoint);
+                       // break;
+                        flagTest=0;
+                     
+                    }
+                    returnNackArrayList(nackTraversalPoint, nackArray);
+                    printf("Length of nack list :%d\n", nackArray->length);
+                    int j=0;
+                    for(j=0;j<nackArray->length;j++){
+                        printf("%d\t",nackArray->seqNo[j]);
+                    }
+                   
+                        break;
+                    n= sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
+                    //sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
+                    if (n < 0)
+                        error("sendto"); 
+                    printf("Nack Packet sent");
+                    //printLinklist( head);
+                    runsequenceTracker+=350;
+                    continue;
+                }
+
+            }   else{
+                    updateNackList(packet->sequenceNo);
+                    //write to mmap or file whatever
+
          }
-
-        // fwrite(packet->data, 1400,1,fpg);
-        //fflush(fpg);
-         //
+         
          if (n < 0)
             error("recvfrom");
-/*          n = sendto(sockfd,"Got your message ",17, 0,(struct sockaddr *) &from,fromlen);
-          if (n < 0)
-             error("sendto"); */   
+ 
 
      }
 
   exit(0); 
 }
+
+
+//How to terminate the file transfer
