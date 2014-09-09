@@ -149,4 +149,3 @@ int main(int argc, char *argv[])
     }
 	//(void) pthread_join(recvThread, NULL);
 	exit(EXIT_SUCCESS);
-}
