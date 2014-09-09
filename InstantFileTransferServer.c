@@ -8,6 +8,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 #define PACK_LEN 1500
 #define DATA_LEN 1400
@@ -19,7 +22,7 @@
 
 
 seqACK *nackArray=NULL;
-
+int fileSize;
 
 typedef struct dataSt{
         int nakNo;
@@ -34,6 +37,11 @@ dataSt *nackTraversalPoint = NULL;
 int newSeqNo;
 int oldSeqNo = 1;
 dataSt *a[MAXSEQNO]={NULL};
+
+nackFile *filesizefromclient;
+
+int *map;  /* mmapped array of int's */
+
 //For track sequence
 
 //Function for track and update
@@ -156,6 +164,8 @@ void error(const char *msg)
 
 int main(int argc, char *argv[])
 {
+     int result, maxSequenceNumber=0, tempSequence,maxSequenceCalulated;
+     int writefd;
      customPacket *packet;
      int sockfd, newsockfd, portno;
      socklen_t fromlen;
@@ -189,63 +199,129 @@ int main(int argc, char *argv[])
     //seqACK *nackArray
     nackArray= (seqACK*)malloc(sizeof(seqACK));
 
-    int flagTest =1;
+    //int flagTest =1;
    
+    writefd = open("fileReceived.bin", O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600);
+    if (writefd == -1) {
+        perror("Error opening file for writing");
+        exit(EXIT_FAILURE);
+    }
+    //for filesize;
+    filesizefromclient =(nackFile*)malloc(sizeof(nackFile));
+    //to set the mmap size and do it only once 
+    int yes=0;
+    //int testflag=1;
      while (1) {
          n = recvfrom(sockfd,buffer,PACK_LEN,0,(struct sockaddr *)&from,&fromlen);
-       
-         packet=(customPacket*)buffer;
-         //printf("Packet sequenceNumber : %d\n packet Length: %d\n",packet->sequenceNo,packet->len);
-         //if(packet->sequenceNo)
-         if(packet->sequenceNo >runsequenceTracker+350) {
-                if(packet->sequenceNo >runsequenceTracker){
+
+         //check buffer data lenth for n==4
+         //Two cases:
+         //1. fileSzie==-1 [query for nack]
+         //2. fileSize>0 [info about file size]
+         if(n==4){
+
+              filesizefromclient=(nackFile*)buffer;
+              fileSize=filesizefromclient->data;
+
+              //fileSize =2097152;
+              //check two condition
+              if(fileSize==-1){
+                    //get the packet
+                    packet=(customPacket*)buffer;
+
+                    if(packet->sequenceNo >runsequenceTracker+1000){
+                        tempSequence=packet->sequenceNo;
+                        if(maxSequenceNumber<tempSequence)
+                                maxSequenceNumber=tempSequence;
                     printf("calling track sequence\n");
                     oldSeqNo = newSeqNo;
                     newSeqNo =runsequenceTracker+400;
                     trackseq();
 
-                //printLinklist( head);
-
-                    //returnNackArrayList(nackTraversalPoint, nackArray);
-                    if(flagTest){
-                        nackTraversalPoint=head;
-                        printf("Assigning nackTraversalPoint head %d\t %d\n",head , nackTraversalPoint);
-                       // break;
-                        flagTest=0;
-                     
-                    }
-                    returnNackArrayList(nackTraversalPoint, nackArray);
-                    printf("Length of nack list :%d\n", nackArray->length);
+     
+                    returnNackArrayList(head, nackArray);
                     int j=0;
                     for(j=0;j<nackArray->length;j++){
                         printf("%d\t",nackArray->seqNo[j]);
                     }
                    
-                        break;
-                    n= sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
-                    //sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
-                    if (n < 0)
-                        error("sendto"); 
-                    printf("Nack Packet sent");
-                    //printLinklist( head);
-                    runsequenceTracker+=350;
-                    continue;
+                    //    break;
+                    if(head==NULL && maxSequenceNumber==maxSequenceCalulated){
+                        n= sendto(sockfd,"r",1, 0,(struct sockaddr *) &from,fromlen);
+                        if (n < 0)
+                            error("sendto"); 
+                         continue;
+                    }  else {
+                             n= sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
+                            //sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
+                            if (n < 0)
+                                error("sendto"); 
+                            printf("Nack Packet sent");
+                            //printLinklist( head);
+                            runsequenceTracker+=350;
+                            continue;
+                    }
+
                 }
+              } else{
+                     /* Stretch the file size to the size of the (mmapped) array of ints
+                    */
+                //do this only once as you may get more packets
+                if(yes){
+                     maxSequenceCalulated=(fileSize/1400)+1;
 
-            }   else{
+                    result = lseek(writefd, fileSize-1, SEEK_SET);
+                    if (result == -1) {
+                        close(writefd);
+                        perror("Error calling lseek() to 'stretch' the file");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    result = write(writefd, "", 1);
+                    if (result != 1) {
+                        close(writefd);
+                        perror("Error writing last byte of the file");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    map = mmap(0, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, writefd, 0);
+                    if (map == MAP_FAILED) {
+                        close(writefd);
+                        perror("Error mmapping the file");
+                        exit(EXIT_FAILURE);
+                    }
+        
+                    //testflag=0;
+                    yes=0;
+                    continue;
+                  }  
+              }
+           
+         }
+           else{
+                    packet=(customPacket*)buffer;
+                    tempSequence=packet->sequenceNo;
+                    if(maxSequenceNumber<tempSequence)
+                        maxSequenceNumber=tempSequence;
                     updateNackList(packet->sequenceNo);
-                    //write to mmap or file whatever
 
+                    //write to mmap or file whatever
+                    //if we got the file size => you can map the data to mmap.
+                    if(yes){
+                        map[packet->sequenceNo] =packet->data;
+                    }
          }
          
          if (n < 0)
             error("recvfrom");
- 
-
      }
+//unmap file
+    if (munmap(map, fileSize) == -1) {
+        perror("Error un-mmapping the file");
+    /* Decide here whether to close(fd) and exit() or not. Depends... */
+    }
 
+  close(writefd);
   exit(0); 
 }
 
-
-//How to terminate the file transfer
