@@ -210,6 +210,7 @@ int main(int argc, char *argv[])
     filesizefromclient =(nackFile*)malloc(sizeof(nackFile));
     //to set the mmap size and do it only once 
     int yes=1;
+    int dataFromClient;
     //int testflag=1;
      while (1) {
          n = recvfrom(sockfd,buffer,PACK_LEN,0,(struct sockaddr *)&from,&fromlen);
@@ -221,11 +222,11 @@ int main(int argc, char *argv[])
          if(n==4){
 
               filesizefromclient=(nackFile*)buffer;
-              fileSize=filesizefromclient->data;
+              dataFromClient=filesizefromclient->data;
 
               //fileSize =2097152;
               //check two condition
-              if(fileSize==-1){
+              if(dataFromClient==-1){
                     //get the packet
                     printf("calling track sequence\n");
                     oldSeqNo = newSeqNo;
@@ -266,6 +267,7 @@ int main(int argc, char *argv[])
                     */
                 //do this only once as you may get more packets
                 if(yes){
+                    fileSize=dataFromClient;
                      maxSequenceCalulated=(fileSize/1400)+1;
 
                     result = lseek(writefd, fileSize-1, SEEK_SET);
@@ -313,7 +315,7 @@ int main(int argc, char *argv[])
          if (n < 0)
             error("recvfrom");
      }
-//unmap file
+    //unmap file
     if (munmap(map, fileSize) == -1) {
         perror("Error un-mmapping the file");
     /* Decide here whether to close(fd) and exit() or not. Depends... */
