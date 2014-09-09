@@ -4,6 +4,7 @@
 #define SEQ_PACK 350
 typedef struct 
 {
+	char type;
 	int sequenceNo;
 	int len;
 	char data[1400];
