@@ -250,7 +250,11 @@ int main(int argc, char *argv[])
                          break;
                          //continue;
                     }  else {
+
                         // #######if nackArray->len ==0 do not send the packet
+                            if(nackArray->length==0){
+                                continue;
+                            }
                              n= sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
                             //sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
                             if (n < 0)
