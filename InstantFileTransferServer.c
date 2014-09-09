@@ -245,8 +245,11 @@ int main(int argc, char *argv[])
                         n= sendto(sockfd,"r",1, 0,(struct sockaddr *) &from,fromlen);
                         if (n < 0)
                             error("sendto"); 
-                         continue;
+                        printf("Tearing Down .....MACHA");
+                         break;
+                         //continue;
                     }  else {
+                        // #######if nackArray->len ==0 do not send the packet
                              n= sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
                             //sendto(sockfd,(char*)nackArray,sizeof(nackArray), 0,(struct sockaddr *) &from,fromlen);
                             if (n < 0)
