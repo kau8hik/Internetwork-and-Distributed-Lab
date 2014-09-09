@@ -209,7 +209,7 @@ int main(int argc, char *argv[])
     //for filesize;
     filesizefromclient =(nackFile*)malloc(sizeof(nackFile));
     //to set the mmap size and do it only once 
-    int yes=0;
+    int yes=1;
     //int testflag=1;
      while (1) {
          n = recvfrom(sockfd,buffer,PACK_LEN,0,(struct sockaddr *)&from,&fromlen);
@@ -227,24 +227,19 @@ int main(int argc, char *argv[])
               //check two condition
               if(fileSize==-1){
                     //get the packet
-                    packet=(customPacket*)buffer;
-
-                    if(packet->sequenceNo >runsequenceTracker+1000){
-                        tempSequence=packet->sequenceNo;
-                        if(maxSequenceNumber<tempSequence)
-                                maxSequenceNumber=tempSequence;
                     printf("calling track sequence\n");
                     oldSeqNo = newSeqNo;
-                    newSeqNo =runsequenceTracker+400;
+                    newSeqNo =maxSequenceNumber;
                     trackseq();
 
      
                     returnNackArrayList(head, nackArray);
-                    int j=0;
+                    //print the nack list
+/*                    int j=0;
                     for(j=0;j<nackArray->length;j++){
                         printf("%d\t",nackArray->seqNo[j]);
                     }
-                   
+*/                   
                     //    break;
                     if(head==NULL && maxSequenceNumber==maxSequenceCalulated){
                         n= sendto(sockfd,"r",1, 0,(struct sockaddr *) &from,fromlen);
@@ -262,7 +257,7 @@ int main(int argc, char *argv[])
                             continue;
                     }
 
-                }
+                
               } else{
                      /* Stretch the file size to the size of the (mmapped) array of ints
                     */
@@ -325,3 +320,5 @@ int main(int argc, char *argv[])
   exit(0); 
 }
 
+
+//How to terminate the file transfer , when to say nack is empty
