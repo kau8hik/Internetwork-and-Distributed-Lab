@@ -11,7 +11,7 @@
 #include <pthread.h>
 #include "packetHeader.h"
 
-#define IP_ADDR "127.0.0.1"
+#define IP_ADDR "10.1.1.2"
 #define SEND_PORT 32000
 #define RECV_PORT 32001
 #define PACK_LEN 1400
@@ -138,7 +138,7 @@ int main(int argc, char *argv[]){
     i = 0;
     pthread_t recvThread;
     FILE *fpc =fopen("cli","w");
-    pthread_create(&recvThread,NULL,recieveNACK,NULL);
+    //pthread_create(&recvThread,NULL,recieveNACK,NULL);
     while(i<fileLength){
         initial = i;
         packet->sequenceNo=seq;
@@ -149,10 +149,9 @@ int main(int argc, char *argv[]){
                 nackFile *nf1;
                 nf1 = (nackFile *)malloc(sizeof(nackFile));
                 nf1->data = -1;
-                sendPacketChar(sockfd,(nackFile *)nf1,4,servaddr,sizeof(servaddr)); 
+                //sendPacketChar(sockfd,(nackFile *)nf1,4,servaddr,sizeof(servaddr)); 
                 free(nf1);
             }
-            if(i==1400) continue;
             packet->len=PACK_LEN;
             memcpy(packet->data,addr+initial,PACK_LEN);
             sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
@@ -160,6 +159,7 @@ int main(int argc, char *argv[]){
         else{
             i = fileLength;
             packet->len=fileLength - initial;
+            printf("packet lenght for the final----%d  %d  %d",packet->len,fileLength,initial);
             memcpy(packet->data,addr+initial,packet->len);
             packet->data[fileLength-initial]=0;
             sendPacket(sockfd,packet,fileLength-initial+HEAD_LEN,servaddr,sizeof(servaddr)); 
@@ -179,6 +179,6 @@ int main(int argc, char *argv[]){
         if(killParent)
             break;
     }
-    (void) pthread_join(recvThread, NULL);
+    //(void) pthread_join(recvThread, NULL);
     exit(EXIT_SUCCESS);
 }
