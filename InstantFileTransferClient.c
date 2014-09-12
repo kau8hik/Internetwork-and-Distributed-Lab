@@ -16,16 +16,13 @@
 #define RECV_PORT 32001
 #define PACK_LEN 1400
 #define HEAD_LEN 8
-/*typedef struct 
-{
-    int data;
-} nackFile;
-*/
+
 int killParent = 0;
 char *addr; //holds the pointer of the file returned by mmap
 struct sockaddr_in servaddr; //the client sending socket structure
 int sockfd = 0; //the client sending socket file descriptor
 size_t fileLength; //fileLength of the file 
+int sendNextChunk = 0;
 
 void handle_error(const char *msg){ 
     perror(msg); 
@@ -53,7 +50,13 @@ void *recieveNACK(void *arg){
     packet=(customPacket* )malloc(sizeof(customPacket));
     while (1) {
         //n = recvfrom(recieveSocket,buffer,PACK_LEN,0,(struct sockaddr *)&from,&fromlen);
+	//printf("Should be blocked\n");
         n = recvfrom(sockfd,buffer,PACK_LEN,0,NULL,NULL);//from,&fromlen);
+        if (n < 0)  handle_error("recvfrom");
+        if(strcmp("send next chunck",buffer)==0){
+            sendNextChunk = 1;
+	    continue;
+	}
         if(n==1){  
             killParent = 1;
             printf("tear down");
@@ -66,7 +69,6 @@ void *recieveNACK(void *arg){
             int j = 0;
             for(j=0; j<acks->length; j++){
                 if (acks->seqNo[j]==0)continue;
-                printf("%d------>\n",acks->seqNo[j]);
                 packet->sequenceNo = acks->seqNo[j];
                 int pack_len = 0;
                 if(acks->seqNo[j]*1400>fileLength){
@@ -79,8 +81,7 @@ void *recieveNACK(void *arg){
                 sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
             }
             printf("%s",buffer);
-            if (n < 0)  handle_error("recvfrom");
-            sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
+            //sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
         }
     }
     return NULL;
@@ -88,6 +89,7 @@ void *recieveNACK(void *arg){
 int main(int argc, char *argv[]){   
     //declare packet structure!
     int fd;
+    int chunkSizeInBytes = 10000000;
     struct stat sb;
     off_t offset, pa_offset;
     ssize_t s;
@@ -132,26 +134,22 @@ int main(int argc, char *argv[]){
         nackFile *nf;
         nf = (nackFile *)malloc(sizeof(nackFile));
         nf->data = fileLength;
+        nf->chunckSize = chunkSizeInBytes;
         sendPacketChar(sockfd,(nackFile *)nf,4,servaddr,sizeof(servaddr)); 
         free(nf);
     }
     i = 0;
+
+    int x= 59919;
     pthread_t recvThread;
-    FILE *fpc =fopen("cli","w");
-    //pthread_create(&recvThread,NULL,recieveNACK,NULL);
+    pthread_create(&recvThread,NULL,recieveNACK,NULL);
     while(i<fileLength){
+	printf("%d\n",seq);
+	usleep(100);
         initial = i;
         packet->sequenceNo=seq;
-        fprintf(fpc,"%d\n",packet->sequenceNo); 
         if(i<fileLength-PACK_LEN){
             i = i + PACK_LEN;
-            if(i%10000==0){
-                nackFile *nf1;
-                nf1 = (nackFile *)malloc(sizeof(nackFile));
-                nf1->data = -1;
-                //sendPacketChar(sockfd,(nackFile *)nf1,4,servaddr,sizeof(servaddr)); 
-                free(nf1);
-            }
             packet->len=PACK_LEN;
             memcpy(packet->data,addr+initial,PACK_LEN);
             sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
@@ -165,20 +163,24 @@ int main(int argc, char *argv[]){
             sendPacket(sockfd,packet,fileLength-initial+HEAD_LEN,servaddr,sizeof(servaddr)); 
         }
         seq++;
-        //usleep(3);
+        if(seq>x){
+
+            if(!sendNextChunk){
+                sleep(.5);
+            }
+            if(sendNextChunk){
+                sendNextChunk = 0;
+            }
+            x+=17000;
+         }  
+          
     }
-    while(1){ 
+    /*while(1){ 
         //printf("sent the final");
-        nackFile *nf1;
-        nf1 = (nackFile *)malloc(sizeof(nackFile));
-        nf1->data = -1;
-        sendPacketChar(sockfd,(nackFile *)nf1,4,servaddr,sizeof(servaddr)); 
-        free(nf1);
-        printf("%d",killParent);
         sleep(1);
         if(killParent)
             break;
-    }
-    //(void) pthread_join(recvThread, NULL);
+    }*/
+    (void) pthread_join(recvThread, NULL);
     exit(EXIT_SUCCESS);
 }
