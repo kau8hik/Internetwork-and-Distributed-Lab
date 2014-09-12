@@ -18,10 +18,9 @@
 
 int fileSize = 0;
 
-
 int *a;
 
-typedef struct {
+typedef struct nackList{
 	int num;
 	struct nackList *next;
 }nackList;
@@ -29,12 +28,14 @@ typedef struct {
 nackList *head = NULL;
 nackList *tail = NULL;
 
-nackFile *filesizefromclient;
 int sockfd, portno;
 socklen_t fromlen;
 struct sockaddr_in serv_addr, from;
-int writefd;
+FILE *writefd;
 
+int maxSeqNo = 0;
+int maxSeqNoSeen = 0;
+int teardown = 0;
 char *map;  /* mmapped array of int's */
 
 void error(const char *msg){
@@ -43,18 +44,27 @@ void error(const char *msg){
 }
 
 void* sendNack(void *arg){
+    int old = 1;
+    int new = 1;
+    nackList *temp;
+    nackList *tempnext;
     while(1){    
+	old = new;
+	new = maxSeqNoSeen;
+	int i;
+        
 	for(i = old; i < new; i++){
 	    if(head == NULL && a[i] == 0){
-	    	head = (data*)malloc(sizeof(data));
+		printf("creating Head %d\n",i);
+	    	head = (nackList*)malloc(sizeof(nackList));
 	    	head -> num = i;
 	    	head -> next = NULL;
 	    	tail = head;
-	    	first = head;
             }
             else{
 	    	if(a[i] == 0){
-		    temp = (data*)malloc(sizeof(data));
+		    printf("adding missing sequence to list: %d\n ",i ); 
+		    temp = (nackList*)malloc(sizeof(nackList));
 		    tail -> next = temp;
 		    temp -> num = i;
 		    temp -> next = NULL;
@@ -67,8 +77,9 @@ void* sendNack(void *arg){
     	nackPacket->length = 0;
     	while(temp != NULL){
   	    if(temp -> next == NULL && a[temp->num] == 1){
+		printf("Deleting head\n");
 	    	free(head);
-	    	head = NULL:
+	    	head = NULL;
 	    	temp = NULL;
             } 
    	    else if(a[temp->num]==1){
@@ -80,26 +91,35 @@ void* sendNack(void *arg){
 	    else{
 	    	if( nackPacket->length < 350 ){
   	            nackPacket->length++;
-		    nackPacket->seqNo[nackPacketStatus] = temp->num;
-		    nackPacketStatus++;
+		    nackPacket->seqNo[nackPacket -> length] = temp->num;
+		    nackPacket -> length++;
 	    	}
   	        if( nackPacket->length >= 350 ){    
       	        //send i to sender
-                    n= sendto(sockfd,(char*)nackPacket,sizeof(seqACK), 0,(struct sockaddr *) &from,fromlen);
+		   //kapil
+			//printf("send Nack list\n");
+                    sendto(sockfd,(char*)nackPacket,sizeof(seqACK), 0,(struct sockaddr *) &from,fromlen);
 	            nackPacket->length = 0;
-	            nackPacket->seqNo={0};
+	            memset(nackPacket->seqNo,0,350*sizeof(int));
     	    	}
 	        temp = temp -> next;
 	    }
-	    n= sendto(sockfd,(char*)nackPacket,sizeof(seqACK), 0,(struct sockaddr *) &from,fromlen);
-	    free(nackPacket);
-     	}
+	}
+	//sendto(sockfd,(char*)nackPacket,sizeof(seqACK), 0,(struct sockaddr *) &from,fromlen);
+	free(nackPacket);
+
+	if (head == NULL && old == maxSeqNo && old !=0 ){
+	    teardown = 1;
+	    printf("setting teardown %d\n",teardown);
+	    break;
+        }
+	usleep(1);
     }
 }
 
 int main(int argc, char *argv[]){
-    int maxSequenceNumber=0;
     unsigned char buffer[PACK_LEN];
+    int chunck_size=0;
     int n;
     if (argc < 2) {
         fprintf(stderr,"ERROR, no port provided\n");
@@ -108,6 +128,9 @@ int main(int argc, char *argv[]){
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
         error("ERROR opening socket");
+    int sock_buf_size=190000000;
+    setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, (char*)&sock_buf_size, sizeof(sock_buf_size));
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char*)&sock_buf_size, sizeof(sock_buf_size));
     bzero((char *) &serv_addr, sizeof(serv_addr));
     portno = atoi(argv[1]);
     serv_addr.sin_family = AF_INET;
@@ -118,8 +141,8 @@ int main(int argc, char *argv[]){
     fromlen = sizeof(struct sockaddr_in);
     customPacket *packet;
     packet=(customPacket* )malloc(sizeof(customPacket));
-    writefd = open("fileReceived.c", O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600);
-    if (writefd == -1) {
+    writefd = fopen("fileReceived.bin", "w");
+    if (writefd == NULL) {
         perror("Error opening file for writing");
         exit(EXIT_FAILURE);
     }
@@ -127,33 +150,57 @@ int main(int argc, char *argv[]){
     int err = pthread_create(&handleNackThread, NULL, &sendNack, NULL);
     if (err != 0)
         printf("\ncan't create thread :[%s]", strerror(err));
+    int initialChunckSzie=457143;
+    int x=59919;
     while (1) {
+  	//if(teardown)
+	  //  break;
   	n = recvfrom(sockfd,buffer,PACK_LEN,0,(struct sockaddr *)&from,&fromlen);
         if(n == 4 && fileSize == 0){
+	    nackFile *filesizefromclient;
     	    filesizefromclient = (nackFile*)malloc(sizeof(nackFile));
-	    filesizefromclient = (nackFile*)buffer;
+	    memcpy(filesizefromclient,(nackFile*)buffer,sizeof(nackList));
             fileSize = filesizefromclient->data;
+            chunck_size= filesizefromclient->chunckSize;
+	    chunck_size=83886080;
 	    free(filesizefromclient);
-            map = mmap(0, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, writefd, 0);
-            if (map == MAP_FAILED) {
-                close(writefd);
-                perror("Error mmapping the file");
-                exit(EXIT_FAILURE);
-            }
+	    if(fileSize % 1400 == 0 )
+		maxSeqNo = fileSize / 1400;
+	    else
+	        maxSeqNo = (fileSize / 1400) + 1;
+	    a = (int *)calloc(maxSeqNo,sizeof(int));
 	} 
 	else if(n > 4){
             memcpy(packet, (customPacket*)buffer, n);
-            if(maxSequenceNumber < packet->sequenceNo)
-            	maxSequenceNumber = packet->sequenceNo;;
+            if(maxSeqNoSeen < packet->sequenceNo)
+            	maxSeqNoSeen = packet->sequenceNo;;
             int addressToAdd = 0;
 	    addressToAdd = (packet -> sequenceNo - 1)*1400;
-	    memcpy(map+addressToAdd,(char*)packet->data,packet->len);
-    	    a[packet -> sequenceNo] = 1;
+	    printf("%d\n",packet->sequenceNo);
+	    //memcpy(map+addressToAdd,(char*)packet->data,packet->len);
+    	    fseek(writefd,addressToAdd,SEEK_SET);
+	    fwrite(packet->data,packet->len,1,writefd);
+	    fflush(writefd);
+	    a[packet -> sequenceNo] = 1;
+        //sent the server that send next chunck
+        //<chunck no>chunckSize*80/1400
+
+
+
+         if((packet->sequenceNo) >x){
+            printf("Send Next Chunck\n");
+            sendto(sockfd,"send next chunck",17, 0,(struct sockaddr *) &from,fromlen); 
+            initialChunckSzie+=initialChunckSzie;
+	    x+=17000;
+         }	     
 	}
     }
-    if (munmap(map, fileSize) == -1) {
-        perror("Error un-mmapping the file");
-    }
-    close(writefd);
+    (void) pthread_join(handleNackThread, NULL);
+    int j;
+    for(j = 0; j< 10; j++)
+	sendto(sockfd,"r",1, 0,(struct sockaddr *) &from,fromlen); 
+    //if (munmap(map, fileSize) == -1) 
+    //    perror("Error un-mmapping the file");
+    fclose(writefd);
     exit(0); 
 }
