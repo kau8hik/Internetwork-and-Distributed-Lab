@@ -53,13 +53,17 @@ void *recieveNACK(void *arg){
 	//printf("Should be blocked\n");
         n = recvfrom(sockfd,buffer,PACK_LEN,0,NULL,NULL);//from,&fromlen);
         if (n < 0)  handle_error("recvfrom");
-        if(strcmp("send next chunck",buffer)==0){
+        /*if(strcmp("send next chunck",buffer)==0){
             sendNextChunk = 1;
 	    continue;
-	}
+	}*/
         if(n==1){  
             killParent = 1;
             printf("tear down");
+	    int t;
+	    for(t=0;t<10;t++)	
+		sendto(sockfd,"t",1,0,(struct sockaddr *)&servaddr,sizeof(servaddr));
+
             break;
         }
         else {
@@ -67,33 +71,42 @@ void *recieveNACK(void *arg){
             customPacket *packet;
             packet=(customPacket* )malloc(sizeof(customPacket));
             int j = 0;
+	    //printf("The ack packet lenght %d\n",acks->length);
             for(j=0; j<acks->length; j++){
                 if (acks->seqNo[j]==0)continue;
                 packet->sequenceNo = acks->seqNo[j];
                 int pack_len = 0;
                 if(acks->seqNo[j]*1400>fileLength){
-                    pack_len = fileLength - acks->seqNo[j]*1400;
+                    pack_len = fileLength - (acks->seqNo[j]-1)*1400;
                     packet->len = pack_len;
                 }
-                packet->len = 1400;      
-        
+		else{
+                	packet->len = 1400;      
+		}	
+		//printf(" the nacks got are %d\n",acks->seqNo[j]);
+		//fflush(stdout);
+		
+		//printf("Retransmission....%d: list No %d\n", packet->sequenceNo,j);
                 memcpy(packet->data,addr+1400*(acks->seqNo[j]-1),packet->len);
-                sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
+                sendPacket(sockfd, packet, packet->len + HEAD_LEN, servaddr, sizeof(servaddr)); 
             }
-            printf("%s",buffer);
+            //printf("buffer is %s\n\t",buffer);
             //sendPacket(sockfd,packet,PACK_LEN+HEAD_LEN,servaddr,sizeof(servaddr)); 
         }
+	fflush(stdout);
     }
     return NULL;
 }        
 int main(int argc, char *argv[]){   
     //declare packet structure!
     int fd;
-    int chunkSizeInBytes = 10000000;
     struct stat sb;
     off_t offset, pa_offset;
     ssize_t s;
     sockfd = socket(AF_INET,SOCK_DGRAM,0);
+    int sock_buf_size = 1598029824;
+     setsockopt(sockfd,SOL_SOCKET,SO_SNDBUF,(char *)&sock_buf_size,sizeof(sock_buf_size));   
+    setsockopt(sockfd,SOL_SOCKET,SO_RCVBUF,(char *)&sock_buf_size,sizeof(sock_buf_size));
     bzero(&servaddr,sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = inet_addr(IP_ADDR);
@@ -130,22 +143,21 @@ int main(int argc, char *argv[]){
     int seq = 1;
     int initial = 0;
     for(i=0;i<10;i++){
-        printf("sending file len\n");
+        //printf("sending file len\n");
         nackFile *nf;
         nf = (nackFile *)malloc(sizeof(nackFile));
         nf->data = fileLength;
-        nf->chunckSize = chunkSizeInBytes;
         sendPacketChar(sockfd,(nackFile *)nf,4,servaddr,sizeof(servaddr)); 
         free(nf);
     }
     i = 0;
 
-    int x= 59919;
+    int x= 146118;
     pthread_t recvThread;
     pthread_create(&recvThread,NULL,recieveNACK,NULL);
     while(i<fileLength){
-	printf("%d\n",seq);
-	usleep(100);
+	memset(packet->data,0,PACK_LEN);
+	//printf("%d\n",seq);
         initial = i;
         packet->sequenceNo=seq;
         if(i<fileLength-PACK_LEN){
@@ -159,19 +171,17 @@ int main(int argc, char *argv[]){
             packet->len=fileLength - initial;
             printf("packet lenght for the final----%d  %d  %d",packet->len,fileLength,initial);
             memcpy(packet->data,addr+initial,packet->len);
-            packet->data[fileLength-initial]=0;
-            sendPacket(sockfd,packet,fileLength-initial+HEAD_LEN,servaddr,sizeof(servaddr)); 
+            sendPacket(sockfd,packet,packet->len+HEAD_LEN,servaddr,sizeof(servaddr)); 
         }
         seq++;
-        if(seq>x){
-
-            if(!sendNextChunk){
+        if(seq%x==0){
+	    sleep(1);
+            /*if(!sendNextChunk){
                 sleep(.5);
             }
             if(sendNextChunk){
                 sendNextChunk = 0;
-            }
-            x+=17000;
+            }*/
          }  
           
     }
@@ -181,6 +191,13 @@ int main(int argc, char *argv[]){
         if(killParent)
             break;
     }*/
+    int p = 0;
+    for(p=0;p<5;p++){
+	//sleep(1);
+	char *send = "finished sending"	;
+ 	//sendto(sockfd,send,strlen(send),0,(struct sockaddr *)&servaddr,sizeof(servaddr));
+    }
     (void) pthread_join(recvThread, NULL);
+
     exit(EXIT_SUCCESS);
 }
